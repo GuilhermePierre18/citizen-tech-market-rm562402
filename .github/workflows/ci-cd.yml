@@ -1,0 +1,176 @@
+name: "Citizen Tech Market - RM 562402"
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+
+  build:
+    name: "1 - Build"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.7"
+      - name: Compile application
+        run: python -m compileall -q app.py loja config worker
+
+  sast:
+    name: "2 - SAST"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install Bandit
+        run: pip install bandit==1.8.3
+      - name: SAST scan
+        run: |
+          mkdir -p reports
+          bandit -r . -ll -iii -f json -o reports/sast.json
+
+      - uses: actions/upload-artifact@v4.6.2
+        if: always()
+        with:
+          name: sast-report
+          path: reports/sast.json
+          if-no-files-found: ignore
+
+  secrets:
+    name: "3 - Secrets"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Gitleaks scan
+        uses: gitleaks/gitleaks-action@v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sca:
+    name: "4 - SCA"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Trivy dependency scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: sca.json
+      - uses: actions/upload-artifact@v4.6.2
+        if: always()
+        with:
+          name: sca-report
+          path: sca.json
+          if-no-files-found: ignore
+
+  tests:
+    name: "5 - Tests"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.7"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest==7.4.4
+      - name: Run automated tests
+        run: pytest -v
+
+  image:
+    name: "6 - Image build and scan"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Build container image
+        run: docker build -t ctmarket:562402 .
+      - name: Scan container image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ctmarket:562402
+          scan-type: image
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: json
+          output: trivy-image.json
+      - uses: actions/upload-artifact@v4.6.2
+        if: always()
+        with:
+          name: image-scan-report
+          path: trivy-image.json
+          if-no-files-found: ignore
+
+  dast:
+    name: "7 - Active DAST"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Start application
+        env:
+          POSTGRES_PASSWORD: "CI_TEST_ONLY_PASSWORD"
+          FLASK_SECRET_KEY: "CI_TEST_ONLY_SECRET"
+        run: |
+          docker compose up -d --build
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8104/; then
+              break
+            fi
+            sleep 5
+          done
+          curl -fsS http://127.0.0.1:8104/
+      - name: OWASP ZAP active scan
+        run: |
+          docker run --network host \
+            -v "$PWD:/zap/wrk/:rw" \
+            zaproxy/zap-stable:2.16.1 \
+            zap-full-scan.py \
+            -t http://127.0.0.1:8104 \
+            -J /zap/wrk/dast.json \
+            -l FAIL
+      - uses: actions/upload-artifact@v4.6.2
+        if: always()
+        with:
+          name: dast-report
+          path: dast.json
+          if-no-files-found: ignore
+      - name: Stop application
+        if: always()
+        run: docker compose down -v
+
+  deploy:
+    name: "8 - Deploy"
+    needs:
+      - build
+      - sast
+      - secrets
+      - sca
+      - tests
+      - image
+      - dast
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Deploy application
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          FLASK_SECRET_KEY: ${{ secrets.FLASK_SECRET_KEY }}
+        run: |
+          test -n "$POSTGRES_PASSWORD"
+          test -n "$FLASK_SECRET_KEY"
+          docker compose up -d --build

@@ -1,0 +1,13 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8104:8104"
+    environment:
+      PORTA: "8104"
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?Defina FLASK_SECRET_KEY}
+  banco:
+    image: postgres:11
+    environment:
+      POSTGRES_USER: market
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}"
