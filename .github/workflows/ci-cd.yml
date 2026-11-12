@@ -59,7 +59,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
       - name: Trivy dependency scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: fs
           scan-ref: .
@@ -99,7 +99,7 @@ jobs:
       - name: Build container image
         run: docker build -t ctmarket:562402 .
       - name: Scan container image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: ctmarket:562402
           scan-type: image
