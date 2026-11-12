@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-python@v5.6.0
         with:
-          python-version: "3.7"
+          python-version: "3.11"
       - name: Compile application
         run: python -m compileall -q app.py loja config worker
 
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/checkout@v4.2.2
       - uses: actions/setup-python@v5.6.0
         with:
-          python-version: "3.7"
+          python-version: "3.11"
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
